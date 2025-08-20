@@ -1,34 +1,3 @@
-"""
-Packet Loss rate analysis
-========================================
-Expected CSV format
--------------------
-- The file must be an export from **F4D battery data**.
-- It MUST contain a column named **'Timestamp'** (parseable to datetime).
-- Sensor names may be free text or grid-like names such as
-  `A_1_1`, `C_2_1`, etc. (these are used to draw the per-sensor grid heatmap). 
-
-Returned value
---------------
-A dict with:
-- `figs`: Plotly figures (keys: 'heatmap_hourly_loss', 'lines_hourly_loss',
-  'scatter_batt_vs_loss', 'box_by_sensor', 'hist_overall_loss',
-  and optionally 'grid_sensors_heat', 'spatial_overall_loss').
-- `tables`: pandas DataFrames ('hourly', 'sensor_overall', 'sensor_stats',
-  'sensor_grid') for further analysis/export.
-
-Notes
------
-- `drop_edge_hours=True` removes the first/last hour if they are incomplete.
-- You can exclude sensors via `sensors_to_drop` or mask them via `sensors_to_nan`.
-"""
-import os
-import re
-import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-
 def analyze_battery_packet_loss(
     file_path: str,
     *,
@@ -40,7 +9,7 @@ def analyze_battery_packet_loss(
     sensors_to_drop: list[str] | None = None,      # drop these sensors entirely
     sensors_to_nan:  list[str] | None = None       # set these sensors' values to NaN
 ):
-   """
+    """
     Analyze packet loss from an **F4D battery data** CSV.
 
     Parameters
@@ -461,3 +430,14 @@ def analyze_battery_packet_loss(
             'sensor_grid': sensor_grid
         }
     }
+
+file_path = r"C:\Users\..."
+
+# results = analyze_battery_packet_loss(
+#     file_path,
+#     sensors_to_drop=["C_3_3"],    # optional
+#     #sensors_to_nan=["D_1_1"],     # optional
+#     drop_edge_hours=True
+# )
+
+
