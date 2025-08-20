@@ -2,6 +2,7 @@
 # Goes through a folder with CSV files of battery data from the F4D website,each CSV is differnet exp.
 # Plot boxplot, distribution plot & tabels of statistical tests.
 
+
 import os
 import re
 import glob
@@ -143,6 +144,7 @@ def summarize_folder_distributions_px_vertical(
     sensors_to_nan_by_experiment:  dict[str, list[str]] | None = None,
     # plot options
     bin_size: float = 1.0,          # % width of each bin
+    x_tick_step: float | None = 5.0,   # % spacing between X ticks (None = auto)
     colors: list[str] | None = None,
     show_legend: bool = False
 ):
@@ -238,7 +240,11 @@ def summarize_folder_distributions_px_vertical(
         fig.update_yaxes(title_text="Count", row=i, col=1)
 
     # Global X formatting
-    fig.update_xaxes(autorange=True, dtick=5, ticks="outside")
+    xaxis_kwargs = dict(autorange=True, ticks="outside")
+    if x_tick_step is not None:
+        xaxis_kwargs["dtick"] = x_tick_step
+    fig.update_xaxes(**xaxis_kwargs)
+
 
     fig.update_layout(
         template="plotly_white",
@@ -521,6 +527,7 @@ def build_all(
     points: str | bool = "outliers",   # box plot overlay
     round_numeric: bool = True,
     ndigits: int = 3,
+    x_tick_step: float | None = 5.0,
 ):
     """
     Returns:
@@ -539,6 +546,7 @@ def build_all(
         sensors_to_drop_by_experiment=sensors_to_drop_by_experiment,
         sensors_to_nan_by_experiment=sensors_to_nan_by_experiment,
         bin_size=bin_size,
+        x_tick_step=x_tick_step,
         colors=colors,               # <-- same palette used for hist
         show_legend=show_legend,
     )
@@ -581,13 +589,16 @@ def build_all(
     return figs, dfs
 
 
-# folder = r"C:\Users....."
+
+# folder = r"C:\Users\..."
 # figs, dfs = build_all(
 #     folder=folder,
-#     sensors_to_drop_by_experiment={"Firmware_2": ["D_1_1", "C_2_1"], "Firmware_4": ["C_3_3"]},
-#     colors=px.colors.qualitative.Set2,   # optional: pass your palette
-#     points="outliers",                   # or "all"
-#     round_numeric=True, ndigits=3
+#     sensors_to_drop_by_experiment={"Firmware_2": ["D_1_1", "C_2_1"], "Firmware_4": ["C_3_3"], "Firmware_04": ["C_3_3"]},
+#     colors=px.colors.qualitative.Set2,
+#     points="outliers",
+#     round_numeric=True, ndigits=3,
+#     x_tick_step=1.0
 # )
+
 # figs["hist"].show(); figs["box"].show()
 # display(dfs["describe"]); display(dfs["group"]); display(dfs["pairwise"]); display(dfs["welch"])
