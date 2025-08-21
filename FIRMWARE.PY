@@ -1,3 +1,14 @@
+# Single-file analysis of packet loss from an F4D battery CSV.
+# Produces interactive Plotly figures + tidy tables.
+# Includes cumulative missing-packets line chart per sensor.
+
+import os
+import re
+import numpy as np
+import pandas as pd
+import plotly.express as px
+
+
 def analyze_battery_packet_loss(
     file_path: str,
     *,
@@ -10,29 +21,7 @@ def analyze_battery_packet_loss(
     sensors_to_nan:  list[str] | None = None       # set these sensors' values to NaN
 ):
     """
-    Analyze packet loss from an **F4D battery data** CSV.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to the CSV exported from F4D battery data. Must have 'Timestamp'.
-    freq : str, default "3T"
-        Expected sample interval (e.g., "3T" = every 3 minutes). Used to compute
-        the total expected readings per sensor.
-    expected_per_hour : int, default 20
-        Expected number of readings per hour (20 for 3-minute cadence).
-    drop_edge_hours : bool, default True
-        Drop the first/last hours if they are incomplete (< expected_per_hour).
-    heatmap_max_pct : float | "auto" | None, default "auto"
-        Max value for the hourly heatmap color scale. "auto" caps at the
-        observed max; provide a number to fix it; None behaves like "auto".
-    coords_df : pd.DataFrame | None
-        Optional spatial coordinates with columns ['sensor','x','y'] to plot a
-        scatter heat map colored by overall packet loss.
-    sensors_to_drop : list[str] | None
-        Sensor names to remove entirely from analysis/plots.
-    sensors_to_nan : list[str] | None
-        Sensor names to keep structurally but treat as NaN (ignored in stats).
+    Analyze packet loss from an F4D battery data CSV and return Plotly figures + tables.
 
     Returns
     -------
@@ -60,7 +49,7 @@ def analyze_battery_packet_loss(
     # numeric sensor matrix
     df = df.set_index('Timestamp')
 
-    # --- Outlier handling before aggregation ---
+    # --- Sensor filtering before aggregation ---
     all_cols = [c for c in df.columns if c.lower() != 'timestamp']
     norm = lambda s: str(s).strip().lower()
     name_map = {norm(c): c for c in all_cols}
@@ -118,6 +107,23 @@ def analyze_battery_packet_loss(
     def natural_key(s):
         return [int(t) if t.isdigit() else t for t in re.split(r'(\d+)', str(s))]
     sensor_order = sorted(hourly['sensor'].astype(str).unique(), key=natural_key)
+
+    # ---------- Missing packets per hour + cumulative by sensor ----------
+    hourly["missing_in_hour"] = (
+        expected_per_hour - hourly["n_non_nan"].clip(upper=expected_per_hour)
+    ).clip(lower=0)
+
+    hourly = hourly.sort_values(["sensor", "hour"])
+    hourly["cum_missing"] = hourly.groupby("sensor")["missing_in_hour"].cumsum()
+
+    fig_cum_missing = px.line(
+        hourly.sort_values("hour"),
+        x="hour", y="cum_missing", color="sensor",
+        category_orders={"sensor": sensor_order},
+        labels={"hour": "Hour", "cum_missing": "Cumulative missing packets", "sensor": "Sensor"},
+        title="Cumulative Missing Packets per Sensor (hourly)"
+    )
+    fig_cum_missing.update_layout(template="plotly_white")
 
     # ---------- Plot A: Heatmap (ALL sensors shown, dynamic colorbar) ----------
     hours   = pd.date_range(hourly['hour'].min().floor('H'), hourly['hour'].max().ceil('H'), freq='H')
@@ -211,9 +217,8 @@ def analyze_battery_packet_loss(
         labels={'overall_packet_loss_pct': 'Overall Packet Loss per Sensor (%)', 'count': 'Sensor Count'},
         title='Distribution of Overall Packet Loss — Sensors'
     )
-    # force 0..100 into 100 bins, include exact 100
     fig_overall.update_traces(xbins=dict(start=0, end=100.0001, size=1))
-    fig_overall.update_xaxes(range=[0, 100], dtick=10, ticks="outside")
+    fig_overall.update_xaxes(autorange=True, dtick=10, ticks="outside")
 
     # ---------- GRID PARSING (A_1_2 names) ----------
     so = sensor_overall.copy()
@@ -247,13 +252,14 @@ def analyze_battery_packet_loss(
         so[['sensor','overall_packet_loss_pct']], on='sensor', how='left'
     )
 
-    # ---------- Figures dict (no grid_table) ----------
+    # ---------- Figures dict ----------
     figs = {
         'heatmap_hourly_loss': fig_heat,
         'lines_hourly_loss': fig_lines,
         'scatter_batt_vs_loss': fig_scatter,
         'box_by_sensor': fig_box,
-        'hist_overall_loss': fig_overall
+        'hist_overall_loss': fig_overall,
+        'cum_missing_by_sensor': fig_cum_missing,
     }
 
     # ---------- Per-sensor GRID heatmap (dynamic color scale) ----------
@@ -366,7 +372,6 @@ def analyze_battery_packet_loss(
             width=max(500, 120 * len(col_vals)),
         )
         figs['grid_sensors_heat'] = fig_grid_sensors_heat
-    # if valid is empty: no grid figure
 
     # ---------- Optional spatial plot ----------
     if coords_df is not None and {'sensor','x','y'}.issubset(coords_df.columns):
@@ -397,7 +402,6 @@ def analyze_battery_packet_loss(
     def brand(title_core: str) -> str:
         return f"{exp_name} • {title_core} • {sensor_tag}"
 
-    # Brand titles
     fig_heat.update_layout(title=brand('Hourly Packet Loss by Sensor (Heatmap — all sensors)'))
     fig_lines.update_layout(title=brand('Hourly Packet Loss by Sensor (Time Series)'))
     fig_scatter.update_layout(title=brand('Hourly Avg Battery vs Packet Loss (per Sensor–Hour)'))
@@ -411,8 +415,12 @@ def analyze_battery_packet_loss(
         figs['spatial_overall_loss'].update_layout(
             title=brand('Overall Packet Loss per Sensor (Scatter Heat Map)')
         )
+    if 'cum_missing_by_sensor' in figs:
+        figs['cum_missing_by_sensor'].update_layout(
+            title=brand('Cumulative Missing Packets per Sensor (hourly)')
+        )
 
-    # also return tables
+    # ---------- Tables ----------
     sensor_stats = pd.DataFrame({
         'sensor': sensor_mean.index,
         'avg_batt_mV': sensor_mean.values,
@@ -431,13 +439,13 @@ def analyze_battery_packet_loss(
         }
     }
 
-file_path = r"C:\Users\..."
-
-# results = analyze_battery_packet_loss(
-#     file_path,
-#     sensors_to_drop=["C_3_3"],    # optional
-#     #sensors_to_nan=["D_1_1"],     # optional
+results = analyze_battery_packet_loss(
+#     r"C:\Users\...",
+#     sensors_to_drop=["C_3_3"],
 #     drop_edge_hours=True
 # )
 
-
+# # Display the results
+# for name, fig in results['figs'].items():
+#     print(f"Displaying figure: {name}")
+#     fig.show()
